@@ -1,0 +1,18 @@
+name = "remote-launcher"
+main = "index.js"
+compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Durable Objects 声明
+[[durable_objects.bindings]]
+name = "RELAY"
+class_name = "RelaySession"
+
+# Durable Objects 迁移
+[[migrations]]
+tag = "v1"
+new_classes = ["RelaySession"]
+
+# 环境变量（敏感值用 wrangler secret put SECRET 设置，不要写在这里）
+# [vars]
+# SECRET = "在命令行用 wrangler secret put SECRET 设置"
