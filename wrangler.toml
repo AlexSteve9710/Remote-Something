@@ -1,4 +1,4 @@
-name = "remote-launcher"
+name = "remote-to-open-something"
 main = "index.js"
 compatibility_date = "2024-01-01"
 compatibility_flags = ["nodejs_compat"]
@@ -15,4 +15,4 @@ new_classes = ["RelaySession"]
 
 # 环境变量（敏感值用 wrangler secret put SECRET 设置，不要写在这里）
 # [vars]
-# SECRET = "在命令行用 wrangler secret put SECRET 设置"
+# SECRET = "xjy79122"
