@@ -11,86 +11,91 @@
 import { FRONTEND_HTML } from "./frontend.js";
 
 // ── Durable Object：单台主机的中继会话 ──────────────────────────────────
-export class RelaySession {
+// 免费套餐必须继承 DurableObject，且使用 new_sqlite_classes 迁移
+export class RelaySession extends DurableObject {
   constructor(state, env) {
-    this.state = state;
+    super(state, env);
     this.env = env;
-    this.agentSocket = null;       // C# Agent 的 WS
-    this.controlSockets = new Set(); // 浏览器控制端 WS（可多个）
+    // 用 tag 区分 agent 与 control 连接（存在内存中，DO 存活期间有效）
+    this.agentWs = null;
   }
 
   async fetch(request) {
     const url = new URL(request.url);
 
+    // 非 WebSocket：状态查询
     if (request.headers.get("Upgrade") !== "websocket") {
       if (url.pathname === "/status") {
-        return Response.json({ online: this.agentSocket !== null });
+        return Response.json({ online: this.agentWs !== null });
       }
       return new Response("Expected WebSocket", { status: 426 });
     }
 
-    const [client, server] = Object.values(new WebSocketPair());
-    server.accept();
-
     const role = url.searchParams.get("role");
+    const [client, server] = Object.values(new WebSocketPair());
+
+    // 使用 DO WebSocket Hibernation API（免费套餐推荐方式）
+    this.state.acceptWebSocket(server, [role]);   // tag = "agent" | "control"
 
     if (role === "agent") {
-      // ── Agent 接入 ──────────────────────────────────────────────────
-      if (this.agentSocket) {
-        // 已有 agent，拒绝重复接入
-        server.close(4001, "Already connected");
-        return new Response(null, { status: 101, webSocket: client });
+      // 若已有 agent 在线，先踢掉旧的
+      if (this.agentWs) {
+        try { this.agentWs.close(4001, "Replaced by new agent"); } catch (_) {}
       }
-      this.agentSocket = server;
-      this._broadcast({ type: "agent_online" });
-
-      server.addEventListener("message", (ev) => {
-        // Agent → 所有控制端
-        this._broadcast(JSON.parse(ev.data));
-      });
-
-      server.addEventListener("close", () => {
-        this.agentSocket = null;
-        this._broadcast({ type: "agent_offline" });
-      });
-
-      server.addEventListener("error", () => {
-        this.agentSocket = null;
-        this._broadcast({ type: "agent_offline" });
-      });
-
+      this.agentWs = server;
+      this._broadcastToControls({ type: "agent_online" });
     } else {
-      // ── 浏览器控制端接入 ────────────────────────────────────────────
-      this.controlSockets.add(server);
-
-      // 立刻告知当前 agent 状态
+      // 控制端接入：立即告知 agent 状态
       server.send(JSON.stringify({
-        type: this.agentSocket ? "agent_online" : "agent_offline"
+        type: this.agentWs ? "agent_online" : "agent_offline"
       }));
-
-      server.addEventListener("message", (ev) => {
-        // 控制端 → Agent
-        if (this.agentSocket && this.agentSocket.readyState === WebSocket.OPEN) {
-          this.agentSocket.send(ev.data);
-        } else {
-          server.send(JSON.stringify({ type: "error", message: "Agent 离线" }));
-        }
-      });
-
-      server.addEventListener("close", () => {
-        this.controlSockets.delete(server);
-      });
     }
 
     return new Response(null, { status: 101, webSocket: client });
   }
 
-  _broadcast(obj) {
-    const msg = JSON.stringify(obj);
-    for (const ws of this.controlSockets) {
+  // ── Hibernation 回调 ─────────────────────────────────────────────────
+  async webSocketMessage(ws, message) {
+    const tags = this.state.getTags(ws);
+    const role = tags[0];
+
+    if (role === "agent") {
+      // Agent → 广播给所有控制端
       try {
-        if (ws.readyState === WebSocket.OPEN) ws.send(msg);
+        const obj = JSON.parse(message);
+        this._broadcastToControls(obj);
       } catch (_) {}
+
+    } else {
+      // 控制端 → 转发给 Agent
+      if (this.agentWs) {
+        try { this.agentWs.send(message); } catch (_) {}
+      } else {
+        ws.send(JSON.stringify({ type: "error", message: "Agent 离线" }));
+      }
+    }
+  }
+
+  async webSocketClose(ws, code) {
+    const tags = this.state.getTags(ws);
+    if (tags[0] === "agent") {
+      this.agentWs = null;
+      this._broadcastToControls({ type: "agent_offline" });
+    }
+  }
+
+  async webSocketError(ws) {
+    const tags = this.state.getTags(ws);
+    if (tags[0] === "agent") {
+      this.agentWs = null;
+      this._broadcastToControls({ type: "agent_offline" });
+    }
+  }
+
+  _broadcastToControls(obj) {
+    const msg = JSON.stringify(obj);
+    for (const ws of this.state.getWebSockets("control")) {
+      try { ws.send(msg); } catch (_) {}
     }
   }
 }
