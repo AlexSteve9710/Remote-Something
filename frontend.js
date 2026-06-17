@@ -138,7 +138,7 @@ footer .fd{width:5px;height:5px;border-radius:50%;background:var(--green)}
     <div class="setup-grid">
       <div class="field">
         <label>Worker 地址</label>
-        <input id="i-url" type="text" placeholder="wss://your-worker.workers.dev/control" />
+        <input id="i-url" type="text" placeholder="miku.wahleak.top （只填域名即可）" />
       </div>
       <div class="field">
         <label>访问密钥</label>
@@ -196,14 +196,17 @@ const icons = ['🖥','📝','📊','🌐','🎮','🎵','📸','🔧','⚙','�
 let icoIdx = 0;
 
 function connect() {
-  let url = document.getElementById('i-url').value.trim();
+  let base = document.getElementById('i-url').value.trim().replace(/\/+$/, '');
   const secret = document.getElementById('i-secret').value.trim();
-  if (!url) return;
-  if (!url.includes('?')) url += '?secret=' + encodeURIComponent(secret);
-  else url += '&secret=' + encodeURIComponent(secret);
+  if (!base) return;
+  // 自动补协议头、强制走 /control 路径
+  base = base.replace(/^https:\/\//i, 'wss://').replace(/^http:\/\//i, 'ws://');
+  if (!/^wss?:\/\//i.test(base)) base = 'wss://' + base;
+  const wsHost = base.replace(/\/(agent|control|status).*$/, '');
+  const url = wsHost + '/control?secret=' + encodeURIComponent(secret);
 
   setStatus('connecting','正在连接...');
-  log('info','连接到 ' + url.replace(/secret=[^&]*/,'secret=***'));
+  log('info','连接到 ' + wsHost + '/control?secret=***');
   document.getElementById('btn-conn').disabled = true;
 
   ws = new WebSocket(url);
