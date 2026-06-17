@@ -7,7 +7,7 @@
  *   GET  /control       → 浏览器控制端的 WebSocket 连接
  *   GET  /status        → 查询 Agent 是否在线（JSON）
  */
-
+import { DurableObject } from "cloudflare:workers";
 import { FRONTEND_HTML } from "./frontend.js";
 
 // ── Durable Object：单台主机的中继会话 ──────────────────────────────────
